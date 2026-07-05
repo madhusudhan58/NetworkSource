@@ -1,23 +1,24 @@
 pipeline {
     agent any
 
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+    }
+
     environment {
         PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
         IMAGE_NAME = "madhu58/networksource"
-        IMAGE_TAG = "latest"
+        IMAGE_TAG  = "latest"
 
         CONTAINER_NAME = "networksource"
-        PORT = "8083"
-    }
-
-    options {
-        timestamps()
+        CONTAINER_PORT = "8083"
     }
 
     stages {
 
-        stage('Checkout Source') {
+        stage('Checkout') {
             steps {
                 checkout scm
             }
@@ -26,22 +27,34 @@ pipeline {
         stage('Git Information') {
             steps {
                 sh '''
-                echo "===== USER ====="
+                echo "==============================="
+                echo "Current User"
+                echo "==============================="
                 whoami
 
-                echo "===== PATH ====="
-                echo $PATH
-
-                echo "===== CURRENT DIRECTORY ====="
+                echo "==============================="
+                echo "Current Directory"
+                echo "==============================="
                 pwd
 
-                echo "===== GIT VERSION ====="
+                echo "==============================="
+                echo "PATH"
+                echo "==============================="
+                echo $PATH
+
+                echo "==============================="
+                echo "Git Version"
+                echo "==============================="
                 git --version
 
-                echo "===== GIT STATUS ====="
+                echo "==============================="
+                echo "Git Status"
+                echo "==============================="
                 git status
 
-                echo "===== LAST COMMIT ====="
+                echo "==============================="
+                echo "Latest Commit"
+                echo "==============================="
                 git log --oneline -1
                 '''
             }
@@ -51,16 +64,19 @@ pipeline {
             steps {
                 sh '''
                 which docker
+
                 docker --version
+
                 docker info
                 '''
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build Image') {
             steps {
                 sh '''
-                docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                docker build \
+                -t ${IMAGE_NAME}:${IMAGE_TAG} .
                 '''
             }
         }
@@ -75,6 +91,7 @@ pipeline {
 
         stage('Docker Login') {
             steps {
+
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'dockerhub',
@@ -82,12 +99,14 @@ pipeline {
                         passwordVariable: 'DOCKER_PASS'
                     )
                 ]) {
+
                     sh '''
                     echo "$DOCKER_PASS" | docker login \
                     -u "$DOCKER_USER" \
                     --password-stdin
                     '''
                 }
+
             }
         }
 
@@ -115,12 +134,12 @@ pipeline {
             }
         }
 
-        stage('Run Docker Container') {
+        stage('Run Container') {
             steps {
                 sh '''
                 docker run -d \
                 --name ${CONTAINER_NAME} \
-                -p ${PORT}:80 \
+                -p ${CONTAINER_PORT}:80 \
                 ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
@@ -134,7 +153,7 @@ pipeline {
             }
         }
 
-        stage('Copy File From Container') {
+        stage('Docker Copy') {
             steps {
                 sh '''
                 mkdir -p backup
@@ -146,11 +165,20 @@ pipeline {
             }
         }
 
-        stage('Deploy to Kubernetes') {
+        stage('Kubernetes Deploy') {
             steps {
                 sh '''
                 kubectl apply -f k8s/deployment.yaml
+
                 kubectl apply -f k8s/service.yaml
+                '''
+            }
+        }
+
+        stage('Rollout Status') {
+            steps {
+                sh '''
+                kubectl rollout status deployment/networksource --timeout=180s
                 '''
             }
         }
@@ -158,29 +186,58 @@ pipeline {
         stage('Verify Kubernetes') {
             steps {
                 sh '''
-                kubectl get deployments
+                kubectl get deployment
+
                 kubectl get pods
+
                 kubectl get svc
+                '''
+            }
+        }
+
+        stage('Cleanup') {
+            steps {
+                sh '''
+                docker image prune -f
                 '''
             }
         }
     }
 
     post {
+
         success {
-            echo 'Pipeline completed successfully.'
+
+            echo "Build Successful"
+
+            sh '''
+            echo "Pipeline completed successfully."
+            '''
+
         }
 
         failure {
-            echo 'Pipeline failed.'
+
+            echo "Build Failed"
+
+            sh '''
+            echo "Pipeline failed."
+
+            kubectl rollout undo deployment/networksource || true
+            '''
+
         }
 
         always {
+
             sh '''
-            docker ps -a || true
-            docker images || true
-            docker image prune -f || true
+            docker ps -a
+
+            docker images
             '''
+
+            cleanWs()
+
         }
     }
 }
