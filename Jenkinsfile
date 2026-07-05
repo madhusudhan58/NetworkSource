@@ -3,11 +3,17 @@ pipeline {
 
     environment {
         IMAGE_NAME = "madhu58/network-project"
+        IMAGE_TAG = "latest"
         CONTAINER_NAME = "network-project"
-        DOCKER_TAG = "latest"
     }
 
     stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
 
         stage('Git Info') {
             steps {
@@ -24,17 +30,32 @@ pipeline {
             }
         }
 
+        stage('Check Docker') {
+            steps {
+                sh '''
+                    if ! command -v docker >/dev/null 2>&1; then
+                        echo "ERROR: Docker is not installed or not in PATH."
+                        exit 1
+                    fi
+
+                    docker --version
+                '''
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 sh '''
-                    docker build -t ${IMAGE_NAME}:${DOCKER_TAG} .
+                    docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
                 '''
             }
         }
 
         stage('Docker Images') {
             steps {
-                sh 'docker images'
+                sh '''
+                    docker images
+                '''
             }
         }
 
@@ -42,15 +63,13 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'dockerhub',
+                        credentialsId: 'docker-hub',
                         usernameVariable: 'DOCKER_USER',
                         passwordVariable: 'DOCKER_PASS'
                     )
                 ]) {
                     sh '''
-                        echo "$DOCKER_PASS" | docker login \
-                        -u "$DOCKER_USER" \
-                        --password-stdin
+                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
                     '''
                 }
             }
@@ -59,7 +78,7 @@ pipeline {
         stage('Docker Push') {
             steps {
                 sh '''
-                    docker push ${IMAGE_NAME}:${DOCKER_TAG}
+                    docker push ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
         }
@@ -67,7 +86,7 @@ pipeline {
         stage('Docker Pull') {
             steps {
                 sh '''
-                    docker pull ${IMAGE_NAME}:${DOCKER_TAG}
+                    docker pull ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
         }
@@ -78,9 +97,9 @@ pipeline {
                     docker rm -f ${CONTAINER_NAME} || true
 
                     docker run -d \
-                      --name ${CONTAINER_NAME} \
-                      -p 8080:80 \
-                      ${IMAGE_NAME}:${DOCKER_TAG}
+                        --name ${CONTAINER_NAME} \
+                        -p 8080:80 \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
         }
@@ -88,7 +107,7 @@ pipeline {
         stage('Docker Logs') {
             steps {
                 sh '''
-                    docker logs ${CONTAINER_NAME} || true
+                    docker logs ${CONTAINER_NAME}
                 '''
             }
         }
@@ -96,8 +115,12 @@ pipeline {
         stage('Kubernetes Deploy') {
             steps {
                 sh '''
-                    kubectl apply -f k8s/deployment.yaml
-                    kubectl apply -f k8s/service.yaml
+                    if command -v kubectl >/dev/null 2>&1; then
+                        kubectl apply -f deployment.yaml
+                        kubectl apply -f service.yaml
+                    else
+                        echo "kubectl not installed. Skipping deployment."
+                    fi
                 '''
             }
         }
@@ -105,31 +128,36 @@ pipeline {
         stage('Verify Kubernetes') {
             steps {
                 sh '''
-                    kubectl get deployments
-                    kubectl get pods
-                    kubectl get services
+                    if command -v kubectl >/dev/null 2>&1; then
+                        kubectl get pods
+                        kubectl get services
+                    else
+                        echo "kubectl not installed."
+                    fi
                 '''
             }
         }
     }
 
     post {
+
+        success {
+            echo "Pipeline completed successfully."
+        }
+
+        failure {
+            echo "Pipeline failed."
+        }
+
         always {
             sh '''
                 if command -v docker >/dev/null 2>&1; then
-                    docker system prune -f
+                    docker logout || true
+                    docker image prune -f || true
                 else
                     echo "Docker is not installed. Skipping cleanup."
                 fi
             '''
-        }
-
-        success {
-            echo "Pipeline Completed Successfully"
-        }
-
-        failure {
-            echo "Pipeline Failed"
         }
     }
 }
