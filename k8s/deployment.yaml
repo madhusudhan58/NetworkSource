@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+
+kind: Deployment
+
+metadata:
+
+  name: network-project
+
+spec:
+
+  replicas: 2
+
+  selector:
+
+    matchLabels:
+
+      app: network-project
+
+  template:
+
+    metadata:
+
+      labels:
+
+        app: network-project
+
+    spec:
+
+      containers:
+
+      - name: network-project
+
+        image: madhu58/network-project:latest
+
+        ports:
+
+        - containerPort: 80
