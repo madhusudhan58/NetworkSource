@@ -2,14 +2,19 @@ pipeline {
     agent any
 
     environment {
-        IMAGE_NAME = "madhu58/network-project"
-        IMAGE_TAG = "latest"
-        CONTAINER_NAME = "network-project"
+        // Make sure Jenkins can find Docker on macOS
+        PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+        DOCKER_IMAGE = "madhu58/networksource"
+        DOCKER_TAG = "latest"
+
+        CONTAINER_NAME = "networksource"
+        PORT = "8080"
     }
 
     stages {
 
-        stage('Checkout') {
+        stage('Checkout Source') {
             steps {
                 checkout scm
             }
@@ -18,14 +23,17 @@ pipeline {
         stage('Git Info') {
             steps {
                 sh '''
-                    echo "Current Directory:"
-                    pwd
+                echo "===== USER ====="
+                whoami
 
-                    echo "Git Status:"
-                    git status
+                echo "===== CURRENT DIRECTORY ====="
+                pwd
 
-                    echo "Latest Commit:"
-                    git log --oneline -1
+                echo "===== GIT STATUS ====="
+                git status
+
+                echo "===== LAST COMMIT ====="
+                git log --oneline -1
                 '''
             }
         }
@@ -33,12 +41,17 @@ pipeline {
         stage('Check Docker') {
             steps {
                 sh '''
-                    if ! command -v docker >/dev/null 2>&1; then
-                        echo "ERROR: Docker is not installed or not in PATH."
-                        exit 1
-                    fi
+                echo "===== PATH ====="
+                echo $PATH
 
-                    docker --version
+                echo "===== WHICH DOCKER ====="
+                which docker
+
+                echo "===== DOCKER VERSION ====="
+                docker --version
+
+                echo "===== DOCKER INFO ====="
+                docker info
                 '''
             }
         }
@@ -46,7 +59,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
-                    docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
                 '''
             }
         }
@@ -54,7 +67,7 @@ pipeline {
         stage('Docker Images') {
             steps {
                 sh '''
-                    docker images
+                docker images
                 '''
             }
         }
@@ -63,13 +76,16 @@ pipeline {
             steps {
                 withCredentials([
                     usernamePassword(
-                        credentialsId: 'docker-hub',
+                        credentialsId: 'dockerhub',
                         usernameVariable: 'DOCKER_USER',
                         passwordVariable: 'DOCKER_PASS'
                     )
                 ]) {
+
                     sh '''
-                        echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                    echo "$DOCKER_PASS" | docker login \
+                    -u "$DOCKER_USER" \
+                    --password-stdin
                     '''
                 }
             }
@@ -78,7 +94,7 @@ pipeline {
         stage('Docker Push') {
             steps {
                 sh '''
-                    docker push ${IMAGE_NAME}:${IMAGE_TAG}
+                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
                 '''
             }
         }
@@ -86,20 +102,26 @@ pipeline {
         stage('Docker Pull') {
             steps {
                 sh '''
-                    docker pull ${IMAGE_NAME}:${IMAGE_TAG}
+                docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}
                 '''
             }
         }
 
-        stage('Docker Run') {
+        stage('Stop Old Container') {
             steps {
                 sh '''
-                    docker rm -f ${CONTAINER_NAME} || true
+                docker rm -f ${CONTAINER_NAME} || true
+                '''
+            }
+        }
 
-                    docker run -d \
-                        --name ${CONTAINER_NAME} \
-                        -p 8080:80 \
-                        ${IMAGE_NAME}:${IMAGE_TAG}
+        stage('Run Container') {
+            steps {
+                sh '''
+                docker run -d \
+                --name ${CONTAINER_NAME} \
+                -p ${PORT}:80 \
+                ${DOCKER_IMAGE}:${DOCKER_TAG}
                 '''
             }
         }
@@ -107,7 +129,7 @@ pipeline {
         stage('Docker Logs') {
             steps {
                 sh '''
-                    docker logs ${CONTAINER_NAME}
+                docker logs ${CONTAINER_NAME}
                 '''
             }
         }
@@ -115,12 +137,8 @@ pipeline {
         stage('Kubernetes Deploy') {
             steps {
                 sh '''
-                    if command -v kubectl >/dev/null 2>&1; then
-                        kubectl apply -f deployment.yaml
-                        kubectl apply -f service.yaml
-                    else
-                        echo "kubectl not installed. Skipping deployment."
-                    fi
+                kubectl apply -f k8s/deployment.yaml
+                kubectl apply -f k8s/service.yaml
                 '''
             }
         }
@@ -128,12 +146,9 @@ pipeline {
         stage('Verify Kubernetes') {
             steps {
                 sh '''
-                    if command -v kubectl >/dev/null 2>&1; then
-                        kubectl get pods
-                        kubectl get services
-                    else
-                        echo "kubectl not installed."
-                    fi
+                kubectl get pods
+                kubectl get deployments
+                kubectl get services
                 '''
             }
         }
@@ -142,21 +157,16 @@ pipeline {
     post {
 
         success {
-            echo "Pipeline completed successfully."
+            echo 'Pipeline completed successfully.'
         }
 
         failure {
-            echo "Pipeline failed."
+            echo 'Pipeline failed.'
         }
 
         always {
             sh '''
-                if command -v docker >/dev/null 2>&1; then
-                    docker logout || true
-                    docker image prune -f || true
-                else
-                    echo "Docker is not installed. Skipping cleanup."
-                fi
+            docker image prune -f || true
             '''
         }
     }
