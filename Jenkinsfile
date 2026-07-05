@@ -1,33 +1,32 @@
 pipeline {
-
     agent any
 
     stages {
-
         stage('Checkout') {
             steps {
-                git 'https://github.com/madhusudhan58/NetworkSource.git'
+                git branch: 'main',
+                    url: 'https://github.com/madhusudhan58/NetworkSource.git'
             }
         }
 
         stage('Build') {
             steps {
-                sh 'echo Building Project'
+                echo 'Building Project...'
+                sh 'ls -la'
             }
         }
 
         stage('Test') {
             steps {
-                sh 'echo Testing Project'
+                echo 'Running Tests...'
             }
         }
 
         stage('Deploy') {
             steps {
-                sh 'echo Deployment Successful'
+                echo 'Deploy Successful!'
             }
         }
-
     }
 
     post {
