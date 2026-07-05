@@ -1,24 +1,40 @@
-name: CI
+name: Deploy GitHub Pages
 
 on:
   push:
     branches:
       - main
 
-jobs:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
 
+jobs:
   build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+  deploy:
+    needs: build
+
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
 
     runs-on: ubuntu-latest
 
     steps:
-
-    - uses: actions/checkout@v4
-
-    - name: Build Docker
-
-      run: docker build -t network-project .
-
-    - name: Test
-
-      run: echo "Build Successful"
+      - id: deployment
+        uses: actions/deploy-pages@v5
