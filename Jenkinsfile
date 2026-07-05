@@ -8,7 +8,7 @@ pipeline {
         IMAGE_TAG = "latest"
 
         CONTAINER_NAME = "networksource"
-        PORT = "8080"
+        PORT = "8083"
     }
 
     options {
@@ -17,7 +17,7 @@ pipeline {
 
     stages {
 
-        stage('Checkout') {
+        stage('Checkout Source') {
             steps {
                 checkout scm
             }
@@ -26,22 +26,22 @@ pipeline {
         stage('Git Information') {
             steps {
                 sh '''
-                echo "========== USER =========="
+                echo "===== USER ====="
                 whoami
 
-                echo "========== PATH =========="
+                echo "===== PATH ====="
                 echo $PATH
 
-                echo "========== DIRECTORY =========="
+                echo "===== CURRENT DIRECTORY ====="
                 pwd
 
-                echo "========== GIT VERSION =========="
+                echo "===== GIT VERSION ====="
                 git --version
 
-                echo "========== STATUS =========="
+                echo "===== GIT STATUS ====="
                 git status
 
-                echo "========== LAST COMMIT =========="
+                echo "===== LAST COMMIT ====="
                 git log --oneline -1
                 '''
             }
@@ -51,9 +51,7 @@ pipeline {
             steps {
                 sh '''
                 which docker
-
                 docker --version
-
                 docker info
                 '''
             }
@@ -62,8 +60,7 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
-                docker build \
-                -t ${IMAGE_NAME}:${IMAGE_TAG} .
+                docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
                 '''
             }
         }
@@ -85,7 +82,6 @@ pipeline {
                         passwordVariable: 'DOCKER_PASS'
                     )
                 ]) {
-
                     sh '''
                     echo "$DOCKER_PASS" | docker login \
                     -u "$DOCKER_USER" \
@@ -150,11 +146,10 @@ pipeline {
             }
         }
 
-        stage('Deploy Kubernetes') {
+        stage('Deploy to Kubernetes') {
             steps {
                 sh '''
                 kubectl apply -f k8s/deployment.yaml
-
                 kubectl apply -f k8s/service.yaml
                 '''
             }
@@ -163,10 +158,8 @@ pipeline {
         stage('Verify Kubernetes') {
             steps {
                 sh '''
-                kubectl get deployment
-
+                kubectl get deployments
                 kubectl get pods
-
                 kubectl get svc
                 '''
             }
@@ -174,22 +167,18 @@ pipeline {
     }
 
     post {
-
         success {
-            echo "Pipeline completed successfully."
+            echo 'Pipeline completed successfully.'
         }
 
         failure {
-            echo "Pipeline failed."
+            echo 'Pipeline failed.'
         }
 
         always {
-
             sh '''
             docker ps -a || true
-
             docker images || true
-
             docker image prune -f || true
             '''
         }
