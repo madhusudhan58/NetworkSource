@@ -2,55 +2,58 @@ pipeline {
     agent any
 
     environment {
-        // Make sure Jenkins can find Docker on macOS
         PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
-        DOCKER_IMAGE = "madhu58/networksource"
-        DOCKER_TAG = "latest"
+        IMAGE_NAME = "madhu58/networksource"
+        IMAGE_TAG = "latest"
 
         CONTAINER_NAME = "networksource"
         PORT = "8080"
     }
 
+    options {
+        timestamps()
+    }
+
     stages {
 
-        stage('Checkout Source') {
+        stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Git Info') {
+        stage('Git Information') {
             steps {
                 sh '''
-                echo "===== USER ====="
+                echo "========== USER =========="
                 whoami
 
-                echo "===== CURRENT DIRECTORY ====="
+                echo "========== PATH =========="
+                echo $PATH
+
+                echo "========== DIRECTORY =========="
                 pwd
 
-                echo "===== GIT STATUS ====="
+                echo "========== GIT VERSION =========="
+                git --version
+
+                echo "========== STATUS =========="
                 git status
 
-                echo "===== LAST COMMIT ====="
+                echo "========== LAST COMMIT =========="
                 git log --oneline -1
                 '''
             }
         }
 
-        stage('Check Docker') {
+        stage('Verify Docker') {
             steps {
                 sh '''
-                echo "===== PATH ====="
-                echo $PATH
-
-                echo "===== WHICH DOCKER ====="
                 which docker
 
-                echo "===== DOCKER VERSION ====="
                 docker --version
 
-                echo "===== DOCKER INFO ====="
                 docker info
                 '''
             }
@@ -59,7 +62,8 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 sh '''
-                docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} .
+                docker build \
+                -t ${IMAGE_NAME}:${IMAGE_TAG} .
                 '''
             }
         }
@@ -94,7 +98,7 @@ pipeline {
         stage('Docker Push') {
             steps {
                 sh '''
-                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                docker push ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
         }
@@ -102,7 +106,7 @@ pipeline {
         stage('Docker Pull') {
             steps {
                 sh '''
-                docker pull ${DOCKER_IMAGE}:${DOCKER_TAG}
+                docker pull ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
         }
@@ -115,13 +119,13 @@ pipeline {
             }
         }
 
-        stage('Run Container') {
+        stage('Run Docker Container') {
             steps {
                 sh '''
                 docker run -d \
                 --name ${CONTAINER_NAME} \
                 -p ${PORT}:80 \
-                ${DOCKER_IMAGE}:${DOCKER_TAG}
+                ${IMAGE_NAME}:${IMAGE_TAG}
                 '''
             }
         }
@@ -134,10 +138,23 @@ pipeline {
             }
         }
 
-        stage('Kubernetes Deploy') {
+        stage('Copy File From Container') {
+            steps {
+                sh '''
+                mkdir -p backup
+
+                docker cp \
+                ${CONTAINER_NAME}:/usr/share/nginx/html/index.html \
+                backup/index.html || true
+                '''
+            }
+        }
+
+        stage('Deploy Kubernetes') {
             steps {
                 sh '''
                 kubectl apply -f k8s/deployment.yaml
+
                 kubectl apply -f k8s/service.yaml
                 '''
             }
@@ -146,9 +163,11 @@ pipeline {
         stage('Verify Kubernetes') {
             steps {
                 sh '''
+                kubectl get deployment
+
                 kubectl get pods
-                kubectl get deployments
-                kubectl get services
+
+                kubectl get svc
                 '''
             }
         }
@@ -157,15 +176,20 @@ pipeline {
     post {
 
         success {
-            echo 'Pipeline completed successfully.'
+            echo "Pipeline completed successfully."
         }
 
         failure {
-            echo 'Pipeline failed.'
+            echo "Pipeline failed."
         }
 
         always {
+
             sh '''
+            docker ps -a || true
+
+            docker images || true
+
             docker image prune -f || true
             '''
         }
