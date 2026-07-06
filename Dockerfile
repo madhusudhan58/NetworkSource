@@ -1,7 +1,13 @@
-FROM nginx:latest
+FROM python:3.12-slim
 
-COPY . /usr/share/nginx/html
+WORKDIR /app
 
-EXPOSE 80
+COPY requirements.txt .
 
-CMD ["nginx","-g","daemon off;"]
+RUN pip install -r requirements.txt
+
+COPY . .
+
+EXPOSE 8083
+
+CMD ["python","app.py"]
