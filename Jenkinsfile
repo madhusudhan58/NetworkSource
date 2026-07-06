@@ -248,3 +248,31 @@ pipeline {
         }
     }
 }
+stage('Azure Login') {
+    steps {
+        withCredentials([
+            string(credentialsId: 'azure-client-id', variable: 'AZURE_CLIENT_ID'),
+            string(credentialsId: 'azure-client-secret', variable: 'AZURE_CLIENT_SECRET'),
+            string(credentialsId: 'azure-tenant-id', variable: 'AZURE_TENANT_ID'),
+            string(credentialsId: 'azure-subscription-id', variable: 'AZURE_SUBSCRIPTION_ID')
+        ]) {
+            sh '''
+            echo "========== AZURE CLI =========="
+            az version
+
+            echo "========== AZURE LOGIN =========="
+            az login \
+              --service-principal \
+              --username "$AZURE_CLIENT_ID" \
+              --password "$AZURE_CLIENT_SECRET" \
+              --tenant "$AZURE_TENANT_ID"
+
+            echo "========== SET SUBSCRIPTION =========="
+            az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+
+            echo "========== CURRENT ACCOUNT =========="
+            az account show -o table
+            '''
+        }
+    }
+}
