@@ -10,10 +10,13 @@ pipeline {
         PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
         IMAGE_NAME = "madhu58/networksource"
-        IMAGE_TAG  = "latest"
+        IMAGE_TAG = "latest"
 
         CONTAINER_NAME = "networksource"
         CONTAINER_PORT = "8083"
+
+        K8S_DEPLOYMENT = "network-project"
+        K8S_SERVICE = "network-service"
     }
 
     stages {
@@ -27,34 +30,22 @@ pipeline {
         stage('Git Information') {
             steps {
                 sh '''
-                echo "==============================="
-                echo "Current User"
-                echo "==============================="
+                echo "========== USER =========="
                 whoami
 
-                echo "==============================="
-                echo "Current Directory"
-                echo "==============================="
+                echo "========== WORKSPACE =========="
                 pwd
 
-                echo "==============================="
-                echo "PATH"
-                echo "==============================="
+                echo "========== PATH =========="
                 echo $PATH
 
-                echo "==============================="
-                echo "Git Version"
-                echo "==============================="
+                echo "========== GIT VERSION =========="
                 git --version
 
-                echo "==============================="
-                echo "Git Status"
-                echo "==============================="
+                echo "========== GIT STATUS =========="
                 git status
 
-                echo "==============================="
-                echo "Latest Commit"
-                echo "==============================="
+                echo "========== LAST COMMIT =========="
                 git log --oneline -1
                 '''
             }
@@ -63,16 +54,15 @@ pipeline {
         stage('Verify Docker') {
             steps {
                 sh '''
+                echo "========== DOCKER =========="
                 which docker
-
                 docker --version
-
                 docker info
                 '''
             }
         }
 
-        stage('Build Image') {
+        stage('Build Docker Image') {
             steps {
                 sh '''
                 docker build \
@@ -91,7 +81,6 @@ pipeline {
 
         stage('Docker Login') {
             steps {
-
                 withCredentials([
                     usernamePassword(
                         credentialsId: 'dockerhub',
@@ -106,7 +95,6 @@ pipeline {
                     --password-stdin
                     '''
                 }
-
             }
         }
 
@@ -126,7 +114,7 @@ pipeline {
             }
         }
 
-        stage('Stop Old Container') {
+        stage('Remove Old Container') {
             steps {
                 sh '''
                 docker rm -f ${CONTAINER_NAME} || true
@@ -134,7 +122,7 @@ pipeline {
             }
         }
 
-        stage('Run Container') {
+        stage('Run Docker Container') {
             steps {
                 sh '''
                 docker run -d \
@@ -169,7 +157,6 @@ pipeline {
             steps {
                 sh '''
                 kubectl apply -f k8s/deployment.yaml
-
                 kubectl apply -f k8s/service.yaml
                 '''
             }
@@ -178,7 +165,7 @@ pipeline {
         stage('Rollout Status') {
             steps {
                 sh '''
-                kubectl rollout status deployment/networksource --timeout=180s
+                kubectl rollout status deployment/${K8S_DEPLOYMENT} --timeout=180s
                 '''
             }
         }
@@ -186,11 +173,25 @@ pipeline {
         stage('Verify Kubernetes') {
             steps {
                 sh '''
-                kubectl get deployment
+                echo "===== Deployments ====="
+                kubectl get deployments
 
-                kubectl get pods
+                echo "===== Pods ====="
+                kubectl get pods -o wide
 
+                echo "===== Services ====="
                 kubectl get svc
+
+                echo "===== Nodes ====="
+                kubectl get nodes
+                '''
+            }
+        }
+
+        stage('Application Test') {
+            steps {
+                sh '''
+                kubectl get svc ${K8S_SERVICE}
                 '''
             }
         }
@@ -198,7 +199,8 @@ pipeline {
         stage('Cleanup') {
             steps {
                 sh '''
-                docker image prune -f
+                docker image prune -f || true
+                docker container prune -f || true
                 '''
             }
         }
@@ -208,36 +210,41 @@ pipeline {
 
         success {
 
-            echo "Build Successful"
+            echo '================================='
+            echo 'BUILD SUCCESSFUL'
+            echo '================================='
 
             sh '''
-            echo "Pipeline completed successfully."
-            '''
+            echo "Docker Image:"
+            docker images | grep networksource || true
 
+            echo "Running Containers:"
+            docker ps
+            '''
         }
 
         failure {
 
-            echo "Build Failed"
+            echo '================================='
+            echo 'BUILD FAILED'
+            echo '================================='
 
             sh '''
-            echo "Pipeline failed."
+            echo "Rolling back Kubernetes deployment..."
 
-            kubectl rollout undo deployment/networksource || true
+            kubectl rollout undo deployment/${K8S_DEPLOYMENT} || true
+
+            kubectl get deployments
+
+            kubectl get pods
             '''
-
         }
 
         always {
 
-            sh '''
-            docker ps -a
-
-            docker images
-            '''
+            echo 'Cleaning workspace...'
 
             cleanWs()
-
         }
     }
 }
